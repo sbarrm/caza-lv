@@ -97,10 +97,18 @@ def capturar_firma():
     )
 
     if canvas_result.image_data is not None:
-        firma_pil = Image.fromarray(canvas_result.image_data.astype(np.uint8))
-        buffer = io.BytesIO()
-        firma_pil.save(buffer, format="PNG")
-        st.session_state["firma_bytes"] = buffer.getvalue()
+        # Convertimos la imagen
+        firma_img = (canvas_result.image_data[:, :, :3]).astype(np.uint8)  # ignoramos alpha
+
+        # Comprobamos si la firma es "blanca"
+        if np.all(firma_img == 255):
+            st.session_state["firma_bytes"] = None
+        else:
+            firma_pil = Image.fromarray(firma_img)
+            buffer = io.BytesIO()
+            firma_pil.save(buffer, format="PNG")
+            st.session_state["firma_bytes"] = buffer.getvalue()
+
 
 # ---------------------------------------------------------------------------
 # FUNCIÓN: AÑADIR FIRMA AL PDF
