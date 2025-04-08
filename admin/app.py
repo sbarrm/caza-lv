@@ -38,7 +38,8 @@ if usuario == admin_user and clave == admin_pass:
                 firmas[i] = nuevo_nombre.strip().lower()
                 guardar_firmas(firmas)
                 st.success("Guardado correctamente.")
-                st.experimental_rerun()
+                st.rerun()
+
         with col3:
             if st.button("🗑️ Eliminar", key=f"del_{i}"):
                 del firmas[i]
