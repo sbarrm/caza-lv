@@ -10,6 +10,8 @@ import smtplib
 from email.message import EmailMessage
 import io
 import os
+import json
+from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # CONFIGURACIÓN DE LA APP
@@ -46,14 +48,29 @@ st.markdown("""
 # CONSTANTES
 PDF_ORIGINAL = "documento.pdf"
 DESTINATARIO = "quierovertodo20@gmail.com"
+REGISTRO_FIRMAS = Path("firmas_registradas.json")
 
 # ---------------------------------------------------------------------------
-# INICIALIZAR ESTADO DE SESIÓN
+# ESTADO DE SESIÓN
 if "canvas_key" not in st.session_state:
     st.session_state["canvas_key"] = "firma_default"
 
 if "firma_bytes" not in st.session_state:
     st.session_state["firma_bytes"] = None
+
+# ---------------------------------------------------------------------------
+# FUNCIONES PARA REGISTRO
+def cargar_firmas_registradas():
+    if REGISTRO_FIRMAS.exists():
+        with open(REGISTRO_FIRMAS, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
+
+def guardar_firma(nombre):
+    firmas = cargar_firmas_registradas()
+    firmas.append(nombre.strip().lower())
+    with open(REGISTRO_FIRMAS, "w", encoding="utf-8") as f:
+        json.dump(firmas, f, indent=2)
 
 # ---------------------------------------------------------------------------
 # FUNCIÓN: MOSTRAR PDF ORIGINAL
@@ -97,18 +114,15 @@ def capturar_firma():
     )
 
     if canvas_result.image_data is not None:
-        # Convertimos la imagen
-        firma_img = (canvas_result.image_data[:, :, :3]).astype(np.uint8)  # ignoramos alpha
-
-        # Comprobamos si la firma es "blanca"
-        if np.all(firma_img == 255):
-            st.session_state["firma_bytes"] = None
-        else:
+        # Verificamos si la imagen está completamente en blanco
+        firma_img = (canvas_result.image_data[:, :, :3]).astype(np.uint8)
+        if not np.all(firma_img == 255):
             firma_pil = Image.fromarray(firma_img)
             buffer = io.BytesIO()
             firma_pil.save(buffer, format="PNG")
             st.session_state["firma_bytes"] = buffer.getvalue()
-
+        else:
+            st.session_state["firma_bytes"] = None
 
 # ---------------------------------------------------------------------------
 # FUNCIÓN: AÑADIR FIRMA AL PDF
@@ -190,6 +204,13 @@ if st.button("📬 Enviar Documento Firmado"):
     elif not nombre_apellidos.strip():
         st.error("❌ Por favor, introduce tu nombre y apellidos.")
     else:
-        with st.spinner("Generando y enviando el documento firmado..."):
-            pdf_firmado = firmar_pdf(pdf_original_bytes, firma_bytes, nombre_apellidos)
-            enviar_correo(pdf_firmado, nombre_apellidos)
+        nombre_normalizado = nombre_apellidos.strip().lower()
+        firmas_previas = cargar_firmas_registradas()
+
+        if nombre_normalizado in firmas_previas:
+            st.error("⚠️ Ya has enviado este documento. Solo puedes hacerlo una vez.")
+        else:
+            with st.spinner("Generando y enviando el documento firmado..."):
+                pdf_firmado = firmar_pdf(pdf_original_bytes, firma_bytes, nombre_apellidos)
+                enviar_correo(pdf_firmado, nombre_apellidos)
+                guardar_firma(nombre_apellidos)
