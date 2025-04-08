@@ -13,8 +13,10 @@ import os
 import json
 from pathlib import Path
 
-st.set_page_config(page_title="🦌 Firma de Documento de Caza", layout="centered")
-st.markdown("<h1 style='text-align: center;'>🦌 Firma Digital del Documento de Caza</h1>", unsafe_allow_html=True)
+# ---------------------------------------------------------------------------
+# CONFIGURACIÓN DE LA APP
+st.set_page_config(page_title="🦌 Firma de Documento de caza", layout="centered")
+st.markdown("<h1 style='text-align: center;'>🦌 Firma del documento de caza</h1>", unsafe_allow_html=True)
 
 st.markdown("""
 <style>
@@ -34,23 +36,31 @@ st.markdown("""
     <p>Completa los siguientes pasos para validar tu documento:</p>
     <ol>
         <li>📄 Descarga y revisa el documento de caza.</li>
-        <li>🧍 Introduce tu nombre completo.</li>
         <li>✍️ Dibuja tu firma en el recuadro.</li>
         <li>🧹 Borra si necesitas rehacerla.</li>
+        <li>🧍 Introduce tu nombre completo.</li>
         <li>📬 Pulsa <strong>Enviar</strong> para finalizar.</li>
     </ol>
 </div>
 """, unsafe_allow_html=True)
 
+# ---------------------------------------------------------------------------
+# CONSTANTES Y ESTADOS INICIALES
 PDF_ORIGINAL = "documento.pdf"
 DESTINATARIO = "quierovertodo20@gmail.com"
-REGISTRO_FIRMAS = Path("../firmas_registradas.json")  # Nivel superior
+REGISTRO_FIRMAS = Path("firmas_registradas.json")
 
 if "canvas_key" not in st.session_state:
     st.session_state["canvas_key"] = "firma_default"
 if "firma_bytes" not in st.session_state:
     st.session_state["firma_bytes"] = None
+if "firma_valida" not in st.session_state:
+    st.session_state["firma_valida"] = False
+if "firma_vacia" not in st.session_state:
+    st.session_state["firma_vacia"] = None
 
+# ---------------------------------------------------------------------------
+# FUNCIONES PARA GUARDAR Y LEER JSON
 def cargar_firmas_registradas():
     if REGISTRO_FIRMAS.exists():
         with open(REGISTRO_FIRMAS, "r", encoding="utf-8") as f:
@@ -63,15 +73,19 @@ def guardar_firma(nombre):
     with open(REGISTRO_FIRMAS, "w", encoding="utf-8") as f:
         json.dump(firmas, f, indent=2)
 
+# ---------------------------------------------------------------------------
+# FUNCIÓN: MOSTRAR PDF
 def mostrar_pdf_original(nombre_pdf):
     if not os.path.exists(nombre_pdf):
-        st.error(f"❌ No se encontró el archivo '{nombre_pdf}'. Verifica que esté en el repositorio.")
+        st.error(f"❌ No se encontró el archivo '{nombre_pdf}'.")
         st.stop()
     with open(nombre_pdf, "rb") as f:
         pdf_bytes = f.read()
     st.download_button("📥 Descargar Documento de Caza", data=pdf_bytes, file_name="documento_caza_original.pdf", mime="application/pdf")
     return pdf_bytes
 
+# ---------------------------------------------------------------------------
+# FUNCIÓN: CAPTURAR FIRMA Y COMPARAR CON CANVAS VACÍO
 def capturar_firma():
     st.subheader("✍️ Firma aquí abajo")
     col1, col2 = st.columns([4, 1])
@@ -80,6 +94,7 @@ def capturar_firma():
             st.session_state["canvas_key"] = str(np.random.rand())
             st.session_state["firma_bytes"] = None
             st.session_state["firma_valida"] = False
+            st.session_state["firma_vacia"] = None
 
     canvas_result = st_canvas(
         fill_color="rgba(255, 255, 255, 1)",
@@ -93,13 +108,16 @@ def capturar_firma():
         display_toolbar=False
     )
 
-    # Analizamos si realmente hay contenido dibujado
     if canvas_result.image_data is not None:
-        firma_img = (canvas_result.image_data[:, :, :3]).astype(np.uint8)
+        imagen_actual = (canvas_result.image_data[:, :, :3]).astype(np.uint8)
 
-        # Comprobamos si hay píxeles distintos al fondo blanco
-        if np.any(firma_img != 255):
-            firma_pil = Image.fromarray(firma_img)
+        if st.session_state["firma_vacia"] is None:
+            st.session_state["firma_vacia"] = imagen_actual.copy()
+
+        es_valida = not np.array_equal(imagen_actual, st.session_state["firma_vacia"])
+
+        if es_valida:
+            firma_pil = Image.fromarray(imagen_actual)
             buffer = io.BytesIO()
             firma_pil.save(buffer, format="PNG")
             st.session_state["firma_bytes"] = buffer.getvalue()
@@ -108,7 +126,8 @@ def capturar_firma():
             st.session_state["firma_bytes"] = None
             st.session_state["firma_valida"] = False
 
-
+# ---------------------------------------------------------------------------
+# FUNCIÓN: FIRMAR PDF
 def firmar_pdf(pdf_bytes, firma_bytes, nombre_apellidos, x=50, y=50, pagina=0):
     lector = PdfReader(io.BytesIO(pdf_bytes))
     escritor = PdfWriter()
@@ -129,35 +148,45 @@ def firmar_pdf(pdf_bytes, firma_bytes, nombre_apellidos, x=50, y=50, pagina=0):
     escritor.write(resultado)
     return resultado.getvalue()
 
+# ---------------------------------------------------------------------------
+# FUNCIÓN: ENVIAR EMAIL
 def enviar_correo(pdf_bytes, nombre_apellidos):
     try:
         smtp_host = st.secrets["smtp"]["host"]
         smtp_port = int(st.secrets["smtp"]["port"])
         smtp_user = st.secrets["smtp"]["user"]
         smtp_pass = st.secrets["smtp"]["pass"]
+
         msg = EmailMessage()
         msg["Subject"] = "Documento de Caza Firmado"
         msg["From"] = f"Firma Digital <{smtp_user}>"
         msg["To"] = DESTINATARIO
-        msg.set_content(f"Hola,\n\nAdjunto el documento de caza firmado por:\n👤 {nombre_apellidos}\n\nSaludos cordiales,\nSistema de Firma de Cazadores")
+        msg.set_content(f"Hola,\n\nAdjunto el documento firmado por:\n👤 {nombre_apellidos}\n\nSaludos,\nSistema de Firma")
+
         msg.add_attachment(pdf_bytes, maintype="application", subtype="pdf", filename="documento_caza_firmado.pdf")
+
         with smtplib.SMTP(smtp_host, smtp_port) as server:
             server.starttls()
             server.login(smtp_user, smtp_pass)
             server.send_message(msg)
+
         st.success(f"✅ Documento enviado con éxito a {DESTINATARIO}")
     except Exception as e:
         st.error(f"❌ Error al enviar el correo: {e}")
 
-# FLUJO
+# ---------------------------------------------------------------------------
+# FLUJO PRINCIPAL
 st.divider()
+
 pdf_original_bytes = mostrar_pdf_original(PDF_ORIGINAL)
 capturar_firma()
+
 firma_bytes = st.session_state.get("firma_bytes", None)
 firma_valida = st.session_state.get("firma_valida", False)
 
-st.subheader("🧍 Nombre y Apellidos")
+st.subheader("🧍 Nombre y apellidos")
 nombre_apellidos = st.text_input("Introduce tu nombre completo")
+
 st.divider()
 
 if st.button("📬 Enviar Documento Firmado"):
@@ -168,6 +197,7 @@ if st.button("📬 Enviar Documento Firmado"):
     else:
         nombre_normalizado = nombre_apellidos.strip().lower()
         firmas_previas = cargar_firmas_registradas()
+
         if nombre_normalizado in firmas_previas:
             st.error("⚠️ Ya has enviado este documento. Solo puedes hacerlo una vez.")
         else:
@@ -175,4 +205,4 @@ if st.button("📬 Enviar Documento Firmado"):
                 pdf_firmado = firmar_pdf(pdf_original_bytes, firma_bytes, nombre_apellidos)
                 enviar_correo(pdf_firmado, nombre_apellidos)
                 guardar_firma(nombre_apellidos)
-
+                st.success("✅ Proceso completado. ¡Gracias por tu firma!")
