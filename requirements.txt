@@ -1,4 +1,4 @@
 streamlit
-streamlit-drawable-canvas
+streamlit-signature-pad
 PyPDF2
 reportlab
