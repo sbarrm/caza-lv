@@ -2,15 +2,13 @@ import streamlit as st
 import json
 from pathlib import Path
 
-REGISTRO_FIRMAS = Path("firmas_registradas.json")
-
-# --- Cargar credenciales ---
-admin_user = st.secrets["admin"]["username"]
-admin_pass = st.secrets["admin"]["password"]
-
-# --- Login básico ---
 st.set_page_config(page_title="🛡️ Admin - Firmas de Caza")
 st.title("🛡️ Panel de Administración - Firmas Recibidas")
+
+REGISTRO_FIRMAS = Path("../firmas_registradas.json")
+
+admin_user = st.secrets["admin"]["username"]
+admin_pass = st.secrets["admin"]["password"]
 
 usuario = st.text_input("Usuario")
 clave = st.text_input("Contraseña", type="password")
@@ -52,4 +50,4 @@ if usuario == admin_user and clave == admin_pass:
         st.experimental_rerun()
 
 else:
-    st.warning("🔒 Acceso restringido. Introduce tus credenciales.")
+    st.warning("🔒 Acceso restringido. Introduce tus
