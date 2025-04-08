@@ -79,6 +79,8 @@ def capturar_firma():
         if st.button("🧹 Borrar firma"):
             st.session_state["canvas_key"] = str(np.random.rand())
             st.session_state["firma_bytes"] = None
+            st.session_state["firma_valida"] = False
+
     canvas_result = st_canvas(
         fill_color="rgba(255, 255, 255, 1)",
         stroke_width=2,
@@ -90,15 +92,22 @@ def capturar_firma():
         key=st.session_state["canvas_key"],
         display_toolbar=False
     )
+
+    # Analizamos si realmente hay contenido dibujado
     if canvas_result.image_data is not None:
         firma_img = (canvas_result.image_data[:, :, :3]).astype(np.uint8)
-        if not np.all(firma_img == 255):
+
+        # Comprobamos si hay píxeles distintos al fondo blanco
+        if np.any(firma_img != 255):
             firma_pil = Image.fromarray(firma_img)
             buffer = io.BytesIO()
             firma_pil.save(buffer, format="PNG")
             st.session_state["firma_bytes"] = buffer.getvalue()
+            st.session_state["firma_valida"] = True
         else:
             st.session_state["firma_bytes"] = None
+            st.session_state["firma_valida"] = False
+
 
 def firmar_pdf(pdf_bytes, firma_bytes, nombre_apellidos, x=50, y=50, pagina=0):
     lector = PdfReader(io.BytesIO(pdf_bytes))
@@ -145,12 +154,14 @@ st.divider()
 pdf_original_bytes = mostrar_pdf_original(PDF_ORIGINAL)
 capturar_firma()
 firma_bytes = st.session_state.get("firma_bytes", None)
+firma_valida = st.session_state.get("firma_valida", False)
+
 st.subheader("🧍 Nombre y Apellidos")
 nombre_apellidos = st.text_input("Introduce tu nombre completo")
 st.divider()
 
 if st.button("📬 Enviar Documento Firmado"):
-    if not firma_bytes:
+    if not firma_valida:
         st.error("❌ Debes dibujar tu firma antes de enviar.")
     elif not nombre_apellidos.strip():
         st.error("❌ Por favor, introduce tu nombre y apellidos.")
@@ -164,3 +175,4 @@ if st.button("📬 Enviar Documento Firmado"):
                 pdf_firmado = firmar_pdf(pdf_original_bytes, firma_bytes, nombre_apellidos)
                 enviar_correo(pdf_firmado, nombre_apellidos)
                 guardar_firma(nombre_apellidos)
+
