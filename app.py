@@ -48,9 +48,12 @@ PDF_ORIGINAL = "documento.pdf"
 DESTINATARIO = "quierovertodo20@gmail.com"
 
 # ---------------------------------------------------------------------------
-# ESTADO DE LA FIRMA (para permitir borrado)
+# INICIALIZAR ESTADO DE SESIÓN
 if "canvas_key" not in st.session_state:
     st.session_state["canvas_key"] = "firma_default"
+
+if "firma_bytes" not in st.session_state:
+    st.session_state["firma_bytes"] = None
 
 # ---------------------------------------------------------------------------
 # FUNCIÓN: MOSTRAR PDF ORIGINAL
@@ -79,6 +82,7 @@ def capturar_firma():
     with col2:
         if st.button("🧹 Borrar firma"):
             st.session_state["canvas_key"] = str(np.random.rand())
+            st.session_state["firma_bytes"] = None
 
     canvas_result = st_canvas(
         fill_color="rgba(255, 255, 255, 1)",
@@ -88,16 +92,15 @@ def capturar_firma():
         width=400,
         height=200,
         drawing_mode="freedraw",
-        key=st.session_state["canvas_key"]
+        key=st.session_state["canvas_key"],
+        display_toolbar=False
     )
 
     if canvas_result.image_data is not None:
         firma_pil = Image.fromarray(canvas_result.image_data.astype(np.uint8))
         buffer = io.BytesIO()
         firma_pil.save(buffer, format="PNG")
-        return buffer.getvalue()
-
-    return None
+        st.session_state["firma_bytes"] = buffer.getvalue()
 
 # ---------------------------------------------------------------------------
 # FUNCIÓN: AÑADIR FIRMA AL PDF
@@ -164,7 +167,9 @@ def enviar_correo(pdf_bytes, nombre_apellidos):
 st.divider()
 
 pdf_original_bytes = mostrar_pdf_original(PDF_ORIGINAL)
-firma_bytes = capturar_firma()
+capturar_firma()
+
+firma_bytes = st.session_state.get("firma_bytes", None)
 
 st.subheader("🧍 Nombre y Apellidos")
 nombre_apellidos = st.text_input("Introduce tu nombre completo")
