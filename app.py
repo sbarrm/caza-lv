@@ -59,10 +59,13 @@ def mostrar_pdf_original(nombre_pdf):
 def capturar_firma():
     st.subheader("✍️ Firma aquí abajo")
 
-    col1, col2 = st.columns([3, 1])
-    with col2:
-        if st.button("🧹 Borrar firma"):
-            st.session_state["clear_firma"] = True
+    # Borrar firma al presionar botón
+    if st.button("🧹 Borrar firma"):
+        st.session_state["canvas_key"] = str(np.random.rand())  # genera una clave nueva
+
+    # Establecer una clave por defecto si no existe
+    if "canvas_key" not in st.session_state:
+        st.session_state["canvas_key"] = "firma_default"
 
     canvas_result = st_canvas(
         fill_color="rgba(255, 255, 255, 1)",
@@ -72,25 +75,17 @@ def capturar_firma():
         width=400,
         height=200,
         drawing_mode="freedraw",
-        key="canvas_firma",
-        update_streamlit=True,
-        initial_drawing=None if st.session_state["clear_firma"] else st.session_state.get("last_firma")
+        key=st.session_state["canvas_key"]
     )
-
-    # Reset el flag después de limpiar
-    if st.session_state["clear_firma"]:
-        st.session_state["clear_firma"] = False
-        st.session_state["last_firma"] = None
-        return None
 
     if canvas_result.image_data is not None:
         firma_pil = Image.fromarray(canvas_result.image_data.astype(np.uint8))
         buffer = io.BytesIO()
         firma_pil.save(buffer, format="PNG")
-        st.session_state["last_firma"] = canvas_result.image_data
         return buffer.getvalue()
 
     return None
+
 
 # ---------------------------------------------------------------------------
 # FUNCIÓN: AÑADIR FIRMA AL PDF
