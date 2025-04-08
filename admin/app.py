@@ -45,10 +45,10 @@ if usuario == admin_user and clave == admin_pass:
                 del firmas[i]
                 guardar_firmas(firmas)
                 st.warning("Registro eliminado.")
-                st.experimental_rerun()
+                st.rerun()
 
     if st.button("🔄 Recargar lista"):
-        st.experimental_rerun()
+        st.rerun()
 
 else:
     st.warning("🔒 Acceso restringido. Introduce tus credenciales.")
