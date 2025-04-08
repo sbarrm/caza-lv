@@ -4,180 +4,213 @@ from PyPDF2 import PdfReader, PdfWriter
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.utils import ImageReader
-import os
-import io
-import base64
-
-###############################################################################
-# OPCIONAL: Para enviar correos, podríamos usar 'smtplib' o 'yagmail', etc.
-# Ejemplo con 'smtplib' y credenciales en st.secrets (Mailjet, etc.)
+from PIL import Image
+import numpy as np
 import smtplib
 from email.message import EmailMessage
+import io
+import os
+import json
+from pathlib import Path
 
-###############################################################################
-# Configuración de la página de Streamlit
-st.set_page_config(page_title="Firmar PDF con Streamlit", layout="centered")
+# ---------------------------------------------------------------------------
+# CONFIGURACIÓN DE LA APP
+st.set_page_config(page_title="🦌 Firma de Documento de Caza", layout="centered")
+st.markdown("<h1 style='text-align: center;'>🦌 Firma Digital del Documento de Caza</h1>", unsafe_allow_html=True)
 
-st.title("Firmar PDF con Streamlit")
+st.markdown("""
+<style>
+    .caja {
+        padding: 1rem;
+        border-radius: 10px;
+        border: 1px solid rgba(255,255,255,0.2);
+        margin-bottom: 1.5rem;
+    }
+    ol {
+        padding-left: 1.2rem;
+    }
+</style>
 
-"""
-Este demo te permite:
-1. Subir un PDF.
-2. Dibujar tu firma.
-3. Descargar el PDF firmado o (opcional) enviarlo por correo.
-"""
+<div class='caja'>
+    <p><strong>¡Bienvenido, cazador!</strong></p>
+    <p>Completa los siguientes pasos para validar tu documento:</p>
+    <ol>
+        <li>📄 Descarga y revisa el documento de caza.</li>
+        <li>🧍 Introduce tu nombre completo.</li>
+        <li>✍️ Dibuja tu firma en el recuadro.</li>
+        <li>🧹 Borra si necesitas rehacerla.</li>
+        <li>📬 Pulsa <strong>Enviar</strong> para finalizar.</li>
+    </ol>
+</div>
+""", unsafe_allow_html=True)
 
-###############################################################################
-# 1) Subir el PDF
-pdf_file = st.file_uploader("Sube tu PDF", type=["pdf"])
-if pdf_file is not None:
-    pdf_bytes = pdf_file.read()  # Leemos todo el contenido en memoria
-    st.success("PDF cargado correctamente.")
-else:
-    pdf_bytes = None
+# ---------------------------------------------------------------------------
+# CONSTANTES
+PDF_ORIGINAL = "documento.pdf"
+DESTINATARIO = "quierovertodo20@gmail.com"
+REGISTRO_FIRMAS = Path("firmas_registradas.json")
 
-###############################################################################
-# 2) Dibujar la firma en un lienzo
-st.write("Dibuja tu firma en el recuadro (puedes usar el ratón o el dedo en una pantalla táctil).")
+# ---------------------------------------------------------------------------
+# ESTADO DE SESIÓN
+if "canvas_key" not in st.session_state:
+    st.session_state["canvas_key"] = "firma_default"
 
-canvas_result = st_canvas(
-    fill_color="rgba(255, 255, 255, 1)",
-    stroke_width=2,
-    stroke_color="#000000",
-    background_color="#FFFFFF",
-    width=400,
-    height=200,
-    drawing_mode="freedraw",
-    key="canvas_firma"
-)
+if "firma_bytes" not in st.session_state:
+    st.session_state["firma_bytes"] = None
 
-# El resultado de la firma vendrá en canvas_result.image_data como un array RGBA
-# Si el usuario ha dibujado algo, lo convertimos a una imagen
-firma_img = None
-if canvas_result.image_data is not None:
-    # Convertimos la imagen de NumPy array a bytes PNG
-    import numpy as np
-    from PIL import Image
+# ---------------------------------------------------------------------------
+# FUNCIONES PARA REGISTRO
+def cargar_firmas_registradas():
+    if REGISTRO_FIRMAS.exists():
+        with open(REGISTRO_FIRMAS, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
 
-    firma_pil = Image.fromarray((canvas_result.image_data).astype(np.uint8))
-    # Para saber si está vacía o no, podríamos hacer más validaciones,
-    # pero por simplicidad asumimos que si la persona dibujó algo, se considera firma.
-    firma_buffer = io.BytesIO()
-    firma_pil.save(firma_buffer, format="PNG")
-    firma_buffer.seek(0)
-    firma_img = firma_buffer.read()
+def guardar_firma(nombre):
+    firmas = cargar_firmas_registradas()
+    firmas.append(nombre.strip().lower())
+    with open(REGISTRO_FIRMAS, "w", encoding="utf-8") as f:
+        json.dump(firmas, f, indent=2)
 
-###############################################################################
-# 3) Botón para incrustar la firma y generar un PDF firmado
-def add_signature_to_pdf(pdf_raw_bytes, firma_png_bytes, x=50, y=50, page_num=0):
-    """
-    Superpone la imagen de la firma en la página page_num del PDF.
-    (x, y) es la coordenada inferior-izquierda donde se dibujará la firma.
-    Devuelve bytes del PDF con la firma incrustada.
-    """
-    # 3.1) Leemos el PDF
-    pdf_reader = PdfReader(io.BytesIO(pdf_raw_bytes))
-    pdf_writer = PdfWriter()
+# ---------------------------------------------------------------------------
+# FUNCIÓN: MOSTRAR PDF ORIGINAL
+def mostrar_pdf_original(nombre_pdf):
+    if not os.path.exists(nombre_pdf):
+        st.error(f"❌ No se encontró el archivo '{nombre_pdf}'. Verifica que esté en el repositorio.")
+        st.stop()
 
-    # 3.2) Creamos un PDF "temporal" con la firma usando reportlab
-    packet = io.BytesIO()
-    # Asumimos tamaño carta, pero idealmente deberías obtener el size real de la página
-    c = canvas.Canvas(packet, pagesize=letter)
+    with open(nombre_pdf, "rb") as f:
+        pdf_bytes = f.read()
 
-    # Cargamos la imagen de la firma con reportlab
-    firma_image = ImageReader(io.BytesIO(firma_png_bytes))
-
-    # Ejemplo: dibujamos la firma con ancho ~100 px, alto proporcional
-    c.drawImage(firma_image, x, y, width=100, preserveAspectRatio=True, mask='auto')
-    c.save()
-
-    packet.seek(0)
-    # 3.3) Fusionar la "capa de firma" en la página deseada
-    overlay_pdf = PdfReader(packet)
-
-    # Vamos página por página
-    for i, page in enumerate(pdf_reader.pages):
-        if i == page_num:
-            # "merge_page" superpone el contenido de overlay_pdf en la página
-            page.merge_page(overlay_pdf.pages[0])  # asumiendo 1 pag en overlay
-        pdf_writer.add_page(page)
-
-    # 3.4) Generar PDF final
-    output_stream = io.BytesIO()
-    pdf_writer.write(output_stream)
-    return output_stream.getvalue()
-
-col1, col2, col3 = st.columns(3)
-with col2:
-    generar_btn = st.button("Generar PDF firmado")
-
-pdf_firmado_bytes = None
-
-if generar_btn:
-    if not pdf_bytes:
-        st.error("Primero sube un PDF.")
-    elif not firma_img:
-        st.error("Por favor dibuja tu firma.")
-    else:
-        # Procesamos e incrustamos la firma
-        pdf_firmado_bytes = add_signature_to_pdf(pdf_bytes, firma_img, x=50, y=50, page_num=0)
-        st.success("Firma aplicada con éxito. Puedes descargar el PDF resultante abajo.")
-
-###############################################################################
-# 4) Mostrar botón de descarga
-if pdf_firmado_bytes:
     st.download_button(
-        label="Descargar PDF firmado",
-        data=pdf_firmado_bytes,
-        file_name="documento_firmado.pdf",
+        label="📥 Descargar Documento de Caza",
+        data=pdf_bytes,
+        file_name="documento_caza_original.pdf",
         mime="application/pdf"
     )
+    return pdf_bytes
 
-###############################################################################
-# 5) (OPCIONAL) Enviar por correo
-# Para que sea gratis y sin tarjeta, podrías usar credenciales de SMTP de 
-# un servicio como Mailjet/Brevo sin exponerlas en código. 
-#  - Ve a la Config de tu app en share.streamlit.io -> "Advanced settings" -> "Secrets"
-#  - Define tus variables, ej:
-#       [smtp]
-#       host = "in-v3.mailjet.com"
-#       port = "587"
-#       user = "API_KEY"
-#       password = "API_SECRET"
-#  - En este ejemplo, las leemos con st.secrets["smtp"]["host"] etc.
+# ---------------------------------------------------------------------------
+# FUNCIÓN: CAPTURAR FIRMA EN LIENZO
+def capturar_firma():
+    st.subheader("✍️ Firma aquí abajo")
 
-st.write("---")
-st.subheader("Enviar PDF firmado por correo (opcional)")
+    col1, col2 = st.columns([4, 1])
+    with col2:
+        if st.button("🧹 Borrar firma"):
+            st.session_state["canvas_key"] = str(np.random.rand())
+            st.session_state["firma_bytes"] = None
 
-destinatario = st.text_input("Correo del destinatario", value="ejemplo@correo.com")
+    canvas_result = st_canvas(
+        fill_color="rgba(255, 255, 255, 1)",
+        stroke_width=2,
+        stroke_color="#000000",
+        background_color="#FFFFFF",
+        width=400,
+        height=200,
+        drawing_mode="freedraw",
+        key=st.session_state["canvas_key"],
+        display_toolbar=False
+    )
 
-if st.button("Enviar PDF por correo"):
-    if not pdf_firmado_bytes:
-        st.error("Primero genera el PDF firmado.")
+    if canvas_result.image_data is not None:
+        # Verificamos si la imagen está completamente en blanco
+        firma_img = (canvas_result.image_data[:, :, :3]).astype(np.uint8)
+        if not np.all(firma_img == 255):
+            firma_pil = Image.fromarray(firma_img)
+            buffer = io.BytesIO()
+            firma_pil.save(buffer, format="PNG")
+            st.session_state["firma_bytes"] = buffer.getvalue()
+        else:
+            st.session_state["firma_bytes"] = None
+
+# ---------------------------------------------------------------------------
+# FUNCIÓN: AÑADIR FIRMA AL PDF
+def firmar_pdf(pdf_bytes, firma_bytes, nombre_apellidos, x=50, y=50, pagina=0):
+    lector = PdfReader(io.BytesIO(pdf_bytes))
+    escritor = PdfWriter()
+
+    lienzo = io.BytesIO()
+    c = canvas.Canvas(lienzo, pagesize=letter)
+
+    imagen_firma = ImageReader(io.BytesIO(firma_bytes))
+    c.drawImage(imagen_firma, x, y, width=100, preserveAspectRatio=True, mask='auto')
+
+    c.setFont("Helvetica", 10)
+    c.drawString(x, y - 15, f"Firmado por: {nombre_apellidos}")
+
+    c.save()
+    lienzo.seek(0)
+
+    overlay = PdfReader(lienzo)
+
+    for i, pagina_pdf in enumerate(lector.pages):
+        if i == pagina:
+            pagina_pdf.merge_page(overlay.pages[0])
+        escritor.add_page(pagina_pdf)
+
+    resultado = io.BytesIO()
+    escritor.write(resultado)
+    return resultado.getvalue()
+
+# ---------------------------------------------------------------------------
+# FUNCIÓN: ENVIAR EMAIL
+def enviar_correo(pdf_bytes, nombre_apellidos):
+    try:
+        smtp_host = st.secrets["smtp"]["host"]
+        smtp_port = int(st.secrets["smtp"]["port"])
+        smtp_user = st.secrets["smtp"]["user"]
+        smtp_pass = st.secrets["smtp"]["pass"]
+
+        msg = EmailMessage()
+        msg["Subject"] = "Documento de Caza Firmado"
+        msg["From"] = f"Firma Digital <{smtp_user}>"
+        msg["To"] = DESTINATARIO
+        msg.set_content(
+            f"Hola,\n\nAdjunto el documento de caza firmado por:\n\n"
+            f"👤 {nombre_apellidos}\n\n"
+            f"Saludos cordiales,\nSistema de Firma de Cazadores"
+        )
+
+        msg.add_attachment(pdf_bytes, maintype="application", subtype="pdf", filename="documento_caza_firmado.pdf")
+
+        with smtplib.SMTP(smtp_host, smtp_port) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_pass)
+            server.send_message(msg)
+
+        st.success(f"✅ Documento enviado con éxito a {DESTINATARIO}")
+    except Exception as e:
+        st.error(f"❌ Error al enviar el correo: {e}")
+
+# ---------------------------------------------------------------------------
+# FLUJO PRINCIPAL
+
+st.divider()
+
+pdf_original_bytes = mostrar_pdf_original(PDF_ORIGINAL)
+capturar_firma()
+
+firma_bytes = st.session_state.get("firma_bytes", None)
+
+st.subheader("🧍 Nombre y Apellidos")
+nombre_apellidos = st.text_input("Introduce tu nombre completo")
+
+st.divider()
+
+if st.button("📬 Enviar Documento Firmado"):
+    if not firma_bytes:
+        st.error("❌ Debes dibujar tu firma antes de enviar.")
+    elif not nombre_apellidos.strip():
+        st.error("❌ Por favor, introduce tu nombre y apellidos.")
     else:
-        try:
-            # Ejemplo con smtplib
-            host = st.secrets["smtp"]["host"]
-            port = int(st.secrets["smtp"]["port"])
-            user = st.secrets["smtp"]["user"]
-            password = st.secrets["smtp"]["password"]
+        nombre_normalizado = nombre_apellidos.strip().lower()
+        firmas_previas = cargar_firmas_registradas()
 
-            msg = EmailMessage()
-            msg["Subject"] = "Documento firmado"
-            msg["From"] = f"FirmaPDF <{user}>"
-            msg["To"] = destinatario
-            msg.set_content("Hola,\n\nSe adjunta el documento firmado.\n")
-
-            # Adjuntamos el PDF
-            msg.add_attachment(pdf_firmado_bytes, maintype="application", subtype="pdf",
-                              filename="documento_firmado.pdf")
-
-            with smtplib.SMTP(host, port) as server:
-                server.starttls()  # Asegura la conexión
-                server.login(user, password)
-                server.send_message(msg)
-
-            st.success(f"Correo enviado correctamente a {destinatario}.")
-
-        except Exception as e:
-            st.error(f"Error al enviar correo: {e}")
+        if nombre_normalizado in firmas_previas:
+            st.error("⚠️ Ya has enviado este documento. Solo puedes hacerlo una vez.")
+        else:
+            with st.spinner("Generando y enviando el documento firmado..."):
+                pdf_firmado = firmar_pdf(pdf_original_bytes, firma_bytes, nombre_apellidos)
+                enviar_correo(pdf_firmado, nombre_apellidos)
+                guardar_firma(nombre_apellidos)
