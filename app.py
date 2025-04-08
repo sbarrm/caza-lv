@@ -13,18 +13,22 @@ import os
 
 # ---------------------------------------------------------------------------
 # CONFIGURACIÓN DE LA APP
-st.set_page_config(page_title="Firma Digital - Documento de Caza", layout="centered")
-st.title("🦌 Firma Digital del Documento de Caza")
+st.set_page_config(page_title="🦌 Firma de Documento de Caza", layout="centered")
+st.markdown("<h1 style='text-align: center;'>🦌 Firma Digital del Documento de Caza</h1>", unsafe_allow_html=True)
 
 st.markdown("""
-Bienvenido, cazador. Por favor, sigue los pasos para firmar tu documento:
-
-1. Descarga y revisa el documento de caza.
-2. Introduce tu nombre completo.
-3. Dibuja tu firma en el recuadro.
-4. Si no estás conforme, puedes borrarla.
-5. Haz clic en **Enviar** para completar el proceso.
-""")
+<div style='background-color: #f7f4ef; padding: 1rem; border-radius: 8px; border: 1px solid #ccc'>
+    <strong>¡Bienvenido, cazador!</strong><br>
+    Por favor, completa los siguientes pasos para validar tu documento de actividad cinegética:
+    <ol>
+        <li>📄 Descarga y revisa el documento de caza.</li>
+        <li>🧍 Introduce tu nombre completo.</li>
+        <li>✍️ Dibuja tu firma en el recuadro.</li>
+        <li>🧹 Puedes borrarla si no estás conforme.</li>
+        <li>📬 Finalmente, haz clic en <strong>Enviar</strong>.</li>
+    </ol>
+</div>
+""", unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
 # CONSTANTES
@@ -33,21 +37,21 @@ DESTINATARIO = "quierovertodo20@gmail.com"
 
 # ---------------------------------------------------------------------------
 # ESTADO DE LA FIRMA (para permitir borrado)
-if "clear_firma" not in st.session_state:
-    st.session_state["clear_firma"] = False
+if "canvas_key" not in st.session_state:
+    st.session_state["canvas_key"] = "firma_default"
 
 # ---------------------------------------------------------------------------
 # FUNCIÓN: MOSTRAR PDF ORIGINAL
 def mostrar_pdf_original(nombre_pdf):
     if not os.path.exists(nombre_pdf):
-        st.error(f"No se encontró el archivo '{nombre_pdf}'. Verifica que esté en el repositorio.")
+        st.error(f"❌ No se encontró el archivo '{nombre_pdf}'. Verifica que esté en el repositorio.")
         st.stop()
 
     with open(nombre_pdf, "rb") as f:
         pdf_bytes = f.read()
 
     st.download_button(
-        label="📄 Descargar Documento de Caza",
+        label="📥 Descargar Documento de Caza",
         data=pdf_bytes,
         file_name="documento_caza_original.pdf",
         mime="application/pdf"
@@ -59,13 +63,10 @@ def mostrar_pdf_original(nombre_pdf):
 def capturar_firma():
     st.subheader("✍️ Firma aquí abajo")
 
-    # Borrar firma al presionar botón
-    if st.button("🧹 Borrar firma"):
-        st.session_state["canvas_key"] = str(np.random.rand())  # genera una clave nueva
-
-    # Establecer una clave por defecto si no existe
-    if "canvas_key" not in st.session_state:
-        st.session_state["canvas_key"] = "firma_default"
+    col1, col2 = st.columns([3, 1])
+    with col2:
+        if st.button("🧹 Borrar firma"):
+            st.session_state["canvas_key"] = str(np.random.rand())
 
     canvas_result = st_canvas(
         fill_color="rgba(255, 255, 255, 1)",
@@ -85,7 +86,6 @@ def capturar_firma():
         return buffer.getvalue()
 
     return None
-
 
 # ---------------------------------------------------------------------------
 # FUNCIÓN: AÑADIR FIRMA AL PDF
@@ -118,7 +118,7 @@ def firmar_pdf(pdf_bytes, firma_bytes, nombre_apellidos, x=50, y=50, pagina=0):
 
 # ---------------------------------------------------------------------------
 # FUNCIÓN: ENVIAR EMAIL
-def enviar_correo(pdf_bytes):
+def enviar_correo(pdf_bytes, nombre_apellidos):
     try:
         smtp_host = st.secrets["smtp"]["host"]
         smtp_port = int(st.secrets["smtp"]["port"])
@@ -129,7 +129,11 @@ def enviar_correo(pdf_bytes):
         msg["Subject"] = "Documento de Caza Firmado"
         msg["From"] = f"Firma Digital <{smtp_user}>"
         msg["To"] = DESTINATARIO
-        msg.set_content("Adjunto el documento de caza debidamente firmado.")
+        msg.set_content(
+            f"Hola,\n\nAdjunto el documento de caza firmado por:\n\n"
+            f"👤 {nombre_apellidos}\n\n"
+            f"Saludos cordiales,\nSistema de Firma de Cazadores"
+        )
 
         msg.add_attachment(pdf_bytes, maintype="application", subtype="pdf", filename="documento_caza_firmado.pdf")
 
@@ -163,4 +167,4 @@ if st.button("📬 Enviar Documento Firmado"):
     else:
         with st.spinner("Generando y enviando el documento firmado..."):
             pdf_firmado = firmar_pdf(pdf_original_bytes, firma_bytes, nombre_apellidos)
-            enviar_correo(pdf_firmado)
+            enviar_correo(pdf_firmado, nombre_apellidos)
