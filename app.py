@@ -22,13 +22,19 @@ Bienvenido, cazador. Por favor, sigue los pasos para firmar tu documento:
 1. Descarga y revisa el documento de caza.
 2. Introduce tu nombre completo.
 3. Dibuja tu firma en el recuadro.
-4. Haz clic en **Enviar** para completar el proceso.
+4. Si no estás conforme, puedes borrarla.
+5. Haz clic en **Enviar** para completar el proceso.
 """)
 
 # ---------------------------------------------------------------------------
 # CONSTANTES
 PDF_ORIGINAL = "documento.pdf"
 DESTINATARIO = "quierovertodo20@gmail.com"
+
+# ---------------------------------------------------------------------------
+# ESTADO DE LA FIRMA (para permitir borrado)
+if "clear_firma" not in st.session_state:
+    st.session_state["clear_firma"] = False
 
 # ---------------------------------------------------------------------------
 # FUNCIÓN: MOSTRAR PDF ORIGINAL
@@ -52,6 +58,12 @@ def mostrar_pdf_original(nombre_pdf):
 # FUNCIÓN: CAPTURAR FIRMA EN LIENZO
 def capturar_firma():
     st.subheader("✍️ Firma aquí abajo")
+
+    col1, col2 = st.columns([3, 1])
+    with col2:
+        if st.button("🧹 Borrar firma"):
+            st.session_state["clear_firma"] = True
+
     canvas_result = st_canvas(
         fill_color="rgba(255, 255, 255, 1)",
         stroke_width=2,
@@ -60,14 +72,24 @@ def capturar_firma():
         width=400,
         height=200,
         drawing_mode="freedraw",
-        key="canvas_firma"
+        key="canvas_firma",
+        update_streamlit=True,
+        initial_drawing=None if st.session_state["clear_firma"] else st.session_state.get("last_firma")
     )
+
+    # Reset el flag después de limpiar
+    if st.session_state["clear_firma"]:
+        st.session_state["clear_firma"] = False
+        st.session_state["last_firma"] = None
+        return None
 
     if canvas_result.image_data is not None:
         firma_pil = Image.fromarray(canvas_result.image_data.astype(np.uint8))
         buffer = io.BytesIO()
         firma_pil.save(buffer, format="PNG")
+        st.session_state["last_firma"] = canvas_result.image_data
         return buffer.getvalue()
+
     return None
 
 # ---------------------------------------------------------------------------
@@ -79,11 +101,9 @@ def firmar_pdf(pdf_bytes, firma_bytes, nombre_apellidos, x=50, y=50, pagina=0):
     lienzo = io.BytesIO()
     c = canvas.Canvas(lienzo, pagesize=letter)
 
-    # Añadir imagen de la firma
     imagen_firma = ImageReader(io.BytesIO(firma_bytes))
     c.drawImage(imagen_firma, x, y, width=100, preserveAspectRatio=True, mask='auto')
 
-    # Añadir texto con nombre debajo de la firma
     c.setFont("Helvetica", 10)
     c.drawString(x, y - 15, f"Firmado por: {nombre_apellidos}")
 
@@ -132,17 +152,14 @@ def enviar_correo(pdf_bytes):
 
 st.divider()
 
-# Mostrar PDF y capturar firma
 pdf_original_bytes = mostrar_pdf_original(PDF_ORIGINAL)
 firma_bytes = capturar_firma()
 
-# Campo obligatorio de nombre y apellidos
 st.subheader("🧍 Nombre y Apellidos")
 nombre_apellidos = st.text_input("Introduce tu nombre completo")
 
 st.divider()
 
-# Botón de envío con validaciones
 if st.button("📬 Enviar Documento Firmado"):
     if not firma_bytes:
         st.error("❌ Debes dibujar tu firma antes de enviar.")
