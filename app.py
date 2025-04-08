@@ -17,15 +17,27 @@ st.set_page_config(page_title="🦌 Firma de Documento de Caza", layout="centere
 st.markdown("<h1 style='text-align: center;'>🦌 Firma Digital del Documento de Caza</h1>", unsafe_allow_html=True)
 
 st.markdown("""
-<div style='background-color: #f7f4ef; padding: 1rem; border-radius: 8px; border: 1px solid #ccc'>
-    <strong>¡Bienvenido, cazador!</strong><br>
-    Por favor, completa los siguientes pasos para validar tu documento de actividad cinegética:
+<style>
+    .caja {
+        padding: 1rem;
+        border-radius: 10px;
+        border: 1px solid rgba(255,255,255,0.2);
+        margin-bottom: 1.5rem;
+    }
+    ol {
+        padding-left: 1.2rem;
+    }
+</style>
+
+<div class='caja'>
+    <p><strong>¡Bienvenido, cazador!</strong></p>
+    <p>Completa los siguientes pasos para validar tu documento:</p>
     <ol>
         <li>📄 Descarga y revisa el documento de caza.</li>
         <li>🧍 Introduce tu nombre completo.</li>
         <li>✍️ Dibuja tu firma en el recuadro.</li>
-        <li>🧹 Puedes borrarla si no estás conforme.</li>
-        <li>📬 Finalmente, haz clic en <strong>Enviar</strong>.</li>
+        <li>🧹 Borra si necesitas rehacerla.</li>
+        <li>📬 Pulsa <strong>Enviar</strong> para finalizar.</li>
     </ol>
 </div>
 """, unsafe_allow_html=True)
@@ -63,7 +75,7 @@ def mostrar_pdf_original(nombre_pdf):
 def capturar_firma():
     st.subheader("✍️ Firma aquí abajo")
 
-    col1, col2 = st.columns([3, 1])
+    col1, col2 = st.columns([4, 1])
     with col2:
         if st.button("🧹 Borrar firma"):
             st.session_state["canvas_key"] = str(np.random.rand())
